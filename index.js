@@ -34,7 +34,7 @@ if (!mensagem) {
   process.exit(1);
 }
 
-// Criar barra de progresso personalizada
+// Criar barra de progresso
 const progressBar = new cliProgress.SingleBar(
   {
     format: "{bar} {percentage}%",
@@ -47,18 +47,18 @@ const progressBar = new cliProgress.SingleBar(
   cliProgress.Presets.shades_classic
 );
 
-// Verifica se há mudanças para commit
-const status = execSync("git status --porcelain").toString().trim();
+// Passos do deploy
 const steps = [{ cmd: "git add .", status: "📂 Adicionando arquivos..." }];
 
-// Se houver mudanças, adicionamos commit e push ao fluxo
+// Verificar se há mudanças antes de commitar
+const status = execSync("git status --porcelain").toString().trim();
 if (status) {
   steps.push({
-    cmd: `git commit -m "${mensagem}"`,
+    cmd: `git commit -m "${mensagem}" > /dev/null 2>&1`,
     status: "📝 Realizando commit...",
   });
   steps.push({
-    cmd: `git push origin ${branch}`,
+    cmd: `git push origin ${branch} > /dev/null 2>&1`,
     status: "📤 Enviando alterações para o repositório...",
   });
 } else {
@@ -67,7 +67,7 @@ if (status) {
   );
 }
 
-// Comando SSH **sem exibir a senha no terminal**
+// Comando SSH corrigido para não mostrar a senha no terminal
 const sshCommand = `sshpass -p '[SENHA_OCULTA]' ssh -o StrictHostKeyChecking=no -o PreferredAuthentications=password -o PubkeyAuthentication=no ${usuario}@${servidor} "cd ${pasta} && git pull origin ${branch} && exit 0"`;
 
 steps.push({ cmd: sshCommand, status: "🌐 Conectando ao servidor..." });
@@ -77,25 +77,26 @@ progressBar.start(steps.length, 0);
 
 for (let i = 0; i < steps.length; i++) {
   try {
+    // Atualiza a barra antes de cada comando
     progressBar.update(i + 1);
-    console.log("\n" + chalk.cyan(steps[i].status)); // Mostra a ação atual abaixo da barra
+    console.log("\n" + chalk.cyan(steps[i].status)); // Mostra a ação atual
 
-    if (steps[i].status.includes("Conectando ao servidor")) {
-      // Executa SSH **sem exibir a senha no erro**
+    // Se for o comando SSH, substitui [SENHA_OCULTA] pela senha real sem exibir no terminal
+    if (steps[i].cmd.includes("[SENHA_OCULTA]")) {
       execSync(
         steps[i].cmd.replace(
-          /\[SENHA_OCULTA\]/g,
+          "[SENHA_OCULTA]",
           senha.replace(/(["'$`\\])/g, "\\$1")
         ),
         { stdio: "ignore" }
       );
     } else {
-      execSync(steps[i].cmd, { stdio: "inherit" }); // Exibe logs normalmente para os outros comandos
+      execSync(steps[i].cmd, { stdio: "ignore" }); // Suprime a saída dos comandos
     }
   } catch (error) {
     progressBar.stop();
 
-    // Detecta tipos de erro de conexão
+    // Captura erros do SSH e Git
     const errorMessage = error.message || "";
     if (errorMessage.includes("Permission denied")) {
       console.error(
